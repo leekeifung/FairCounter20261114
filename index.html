@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PolyU Education Fair Counter | GEO · Dr. Charles Lee (AMA)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  body { -webkit-tap-highlight-color: transparent; }
+  .toast { padding:.6rem 1rem; border-radius:.6rem; box-shadow:0 6px 20px rgba(0,0,0,.18);
+           margin-top:.5rem; font-size:.85rem; animation:pop .25s ease; }
+  @keyframes pop { from{opacity:0; transform:translateY(8px) scale(.96)} to{opacity:1} }
+  .tap { transition: transform .08s ease, box-shadow .12s ease; }
+  .tap:active { transform: scale(.96); }
+  .bump { animation: bump .3s ease; }
+  @keyframes bump { 0%{transform:scale(1)} 40%{transform:scale(1.12)} 100%{transform:scale(1)} }
+  .tab-active { background:#fff; color:#9d1b1b; box-shadow:0 2px 8px rgba(0,0,0,.08); }
+  .scroll-y { max-height: 70vh; overflow-y:auto; }
+  .modal-bg { background: rgba(15,23,42,.55); backdrop-filter: blur(2px); }
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px}
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+
+<!-- ============ HEADER ============ -->
+<header class="bg-gradient-to-r from-red-800 to-red-700 text-white shadow-lg sticky top-0 z-30">
+  <div class="max-w-6xl mx-auto px-3 py-3">
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <div>
+        <h1 class="text-lg md:text-xl font-extrabold leading-tight">🎓 PolyU Education Fair Counter</h1>
+        <p class="text-[11px] md:text-xs text-red-100">Global Engagement Office · Dept. of Applied Mathematics · Dr. LEE Kei Fung, Charles (DELO)</p>
+      </div>
+      <div class="flex items-center gap-2 text-xs">
+        <span class="hidden sm:inline text-red-100">Operator:</span>
+        <input id="operator" placeholder="Your name / staff ID"
+          class="px-2 py-1 rounded text-slate-800 text-xs w-32 md:w-44" oninput="state.operator=this.value;save()">
+        <button onclick="openLogin()" class="bg-white/15 hover:bg-white/25 px-2 py-1 rounded">🔐 Login</button>
+      </div>
+    </div>
+
+    <!-- Global event context -->
+    <div class="mt-3 bg-white/10 rounded-lg p-2 flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-semibold">📅 Active fair:</span>
+      <select id="eventSel" onchange="state.eventId=this.value;save();render()"
+        class="flex-1 min-w-0 text-slate-800 text-sm rounded px-2 py-1"></select>
+      <span id="liveBadge" class="bg-amber-400 text-amber-900 text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap">● 0</span>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <nav class="bg-red-900/40">
+    <div class="max-w-6xl mx-auto px-2 flex gap-1 overflow-x-auto">
+      <button id="tab-counter"   onclick="switchView('counter')"   class="tab-active px-3 py-2 rounded-t-lg text-sm font-semibold whitespace-nowrap">🔢 Counter</button>
+      <button id="tab-dashboard" onclick="switchView('dashboard')" class="text-red-50 hover:bg-white/10 px-3 py-2 rounded-t-lg text-sm font-semibold whitespace-nowrap">📊 Dashboard</button>
+      <button id="tab-programmes"onclick="switchView('programmes')"class="text-red-50 hover:bg-white/10 px-3 py-2 rounded-t-lg text-sm font-semibold whitespace-nowrap">🎓 Programmes</button>
+      <button id="tab-events"    onclick="switchView('events')"    class="text-red-50 hover:bg-white/10 px-3 py-2 rounded-t-lg text-sm font-semibold whitespace-nowrap">📅 Fairs</button>
+      <button id="tab-data"      onclick="switchView('data')"      class="text-red-50 hover:bg-white/10 px-3 py-2 rounded-t-lg text-sm font-semibold whitespace-nowrap">⚙️ Data &amp; Guide</button>
+    </div>
+  </nav>
+</header>
+
+<main id="content" class="max-w-6xl mx-auto px-3 py-4"></main>
+
+<!-- Modal + toasts -->
+<div id="modal" class="fixed inset-0 z-50 hidden items-start justify-center p-3 overflow-y-auto modal-bg" onclick="if(event.target===this)closeModal()">
+  <div id="modalBody" class="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-6"></div>
+</div>
+<div id="toast" class="fixed bottom-4 right-4 z-50 flex flex-col items-end"></div>
+
+<script>
+/* ===========================================================
+   1) DATA  ——  (Faculty palettes, visitors, programmes & fairs)
+   =========================================================== */
+
+const FAC = {
+  IDS:  { name:"Interdisciplinary Studies",                     short:"Interdisciplinary", icon:"🧩", chip:"bg-slate-100 text-slate-800 border-slate-300",       hex:"#64748b" },
+  FB:   { name:"Faculty of Business",                           short:"Business",          icon:"💼", chip:"bg-red-100 text-red-800 border-red-300",            hex:"#ef4444" },
+  FCMS: { name:"Faculty of Computer and Mathematical Sciences", short:"Computer & Maths",  icon:"💻", chip:"bg-blue-100 text-blue-800 border-blue-300",         hex:"#3b82f6" },
+  FCE:  { name:"Faculty of Construction and Environment",       short:"Construction & Env.",icon:"🏗️", chip:"bg-amber-100 text-amber-800 border-amber-300",     hex:"#f59e0b" },
+  FENG: { name:"Faculty of Engineering",                        short:"Engineering",       icon:"⚙️", chip:"bg-orange-100 text-orange-800 border-orange-300",    hex:"#f97316" },
+  FHSS: { name:"Faculty of Health and Social Sciences",         short:"Health & Social",   icon:"🩺", chip:"bg-green-100 text-green-800 border-green-300",       hex:"#22c55e" },
+  FH:   { name:"Faculty of Humanities",                         short:"Humanities",        icon:"🗣️", chip:"bg-purple-100 text-purple-800 border-purple-300",   hex:"#a855f7" },
+  FS:   { name:"Faculty of Science",                            short:"Science",           icon:"🔬", chip:"bg-cyan-100 text-cyan-800 border-cyan-300",         hex:"#06b6d4" },
+  SD:   { name:"School of Design",                              short:"Design",            icon:"🎨", chip:"bg-pink-100 text-pink-800 border-pink-300",         hex:"#ec4899" },
+  SFT:  { name:"School of Fashion and Textiles",                short:"Fashion & Textiles",icon:"👗", chip:"bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300", hex:"#d946ef" },
+  SHTM: { name:"School of Hotel and Tourism Management",        short:"Hotel & Tourism",   icon:"🏨", chip:"bg-teal-100 text-teal-800 border-teal-300",         hex:"#14b8a6" }
+};
+const FAC_ORDER = ["IDS","FB","FCMS","FCE","FENG","FHSS","FH","FS","SD","SFT","SHTM"];
+
+// Visitor "clients"
+const CLIENTS = [
+  { id:"student", label:"Student", icon:"🎓", hex:"#dc2626" },
+  { id:"parent",  label:"Parent",  icon:"👪", hex:"#2563eb" },
+  { id:"teacher", label:"Teacher", icon:"🧑‍🏫", hex:"#16a34a" },
+  { id:"other",   label:"Other",   icon:"👤", hex:"#9333ea" }
+];
+
+// All PolyU programmes 2026/27 with JUPAS codes & 2026 Best 5 score (Exclude NAS offers)
+const PROGRAMMES = [
+  { num:1,  fac:"IDS",  type:"broad",  jupas:"JS3000", score:0.0, calc:"Best 5 with Bonus", name:"Bachelor's Degree Scheme in Interdisciplinary Studies" },
+
+  { num:2,  fac:"FB",   type:"broad",  jupas:"JS3003", score:24.9, calc:"Best 5", name:"Bachelor's Degree Scheme in Business Administration" },
+  { num:8,  fac:"FB",   type:"scheme", jupas:"JS3060", score:24.6, calc:"Best 5", name:"BBA (Hons) Scheme in Accounting and Finance", tags:["A"],
+            spec:["Accountancy","Accounting and Finance","Digital Finance and Investment"] },
+  { num:9,  fac:"FB",   type:"scheme", jupas:"JS3070", score:24.7, calc:"Best 5", name:"BBA (Hons) Scheme in Global Business and Logistics, Aviation, Maritime & Supply Chain Mgmt", tags:["A"],
+            spec:["Aviation Management and Finance","Global Business and Logistics","International Shipping and Transport Logistics","Supply Chain Management and Analytics"] },
+  { num:10, fac:"FB",   type:"scheme", jupas:"JS3080", score:23.4, calc:"Best 5", name:"BBA (Hons) Scheme in Management and Marketing", tags:["A"],
+            spec:["Management","Marketing"] },
+
+  { num:3,  fac:"FCMS", type:"broad",  jupas:"JS3006", score:26.3, calc:"Best 5", name:"Bachelor's Degree Scheme in Computer and Mathematical Sciences" },
+  { num:11, fac:"FCMS", type:"scheme", jupas:"JS3220", score:27.1, calc:"Best 5", code:"63430", featured:true, tags:["A"],
+            name:"BSc (Hons) Scheme in Applied Mathematics and Finance Analytics",
+            spec:["Applied Mathematics","Investment Science and Finance Analytics","Quantitative Finance and FinTech"] },
+  { num:12, fac:"FCMS", type:"scheme", jupas:"JS3868", score:25.2, calc:"Best 5", name:"BSc (Hons) Scheme in Computing and AI",
+            spec:["Computer Science","Enterprise Information Systems"] },
+  { num:13, fac:"FCMS", type:"scheme", jupas:"JS3223", score:25.5, calc:"Best 5", name:"BSc (Hons) Scheme in Data Science and Artificial Intelligence", tags:["I"],
+            spec:["Artificial Intelligence","Artificial Intelligence with Financial Technology","Data Science and Analytics"] },
+
+  { num:4,  fac:"FCE",  type:"broad",  jupas:"JS3004", score:23.4, calc:"Best 5 with Bonus", name:"Bachelor's Degree Scheme in Construction and Environment" },
+  { num:14, fac:"FCE",  type:"prog",   jupas:"JS3214", score:22.1, calc:"Best 5 with Bonus", name:"BSc (Hons) in Architectural Studies", tags:["A","I"] },
+  { num:15, fac:"FCE",  type:"prog",   jupas:"JS3791", score:22.2, calc:"Best 5 with Bonus", name:"BSc (Hons) in Building Engineering and Management", tags:["A"] },
+  { num:16, fac:"FCE",  type:"prog",   jupas:"JS3211", score:23.2, calc:"Best 5", name:"BEng (Hons) in Building Sciences and Engineering", tags:["A","I"] },
+  { num:17, fac:"FCE",  type:"prog",   jupas:"JS3739", score:24.7, calc:"Best 5", name:"BEng (Hons) in Civil Engineering",
+            spec:["Civil Engineering (Smart Mobility) + Secondary Major in AIDA"] },
+  { num:18, fac:"FCE",  type:"prog",   jupas:"JS3375", score:24.1, calc:"Best 5 with Bonus", name:"BEng (Hons) in Environmental Engineering and Sustainable Development" },
+  { num:19, fac:"FCE",  type:"scheme", jupas:"JS3130", score:24.0, calc:"Best 5", name:"BSc (Hons) Scheme in Spatial Data Science and Smart Cities", tags:["A"],
+            spec:["Land Surveying and Geo-Informatics","Urban Informatics and Smart Cities"] },
+  { num:20, fac:"FCE",  type:"prog",   jupas:"JS3789", score:25.1, calc:"Best 5 with Bonus", name:"BSc (Hons) in Surveying" },
+
+  { num:5,  fac:"FENG", type:"broad",  jupas:"JS3005", score:24.8, calc:"Best 5", name:"Bachelor's Degree Scheme in Engineering" },
+  { num:21, fac:"FENG", type:"scheme", jupas:"JS3140", score:25.7, calc:"Best 5", name:"BEng (Hons) Scheme in Aviation Engineering",
+            spec:["Aeronautical Engineering","Air Transport Engineering"] },
+  { num:22, fac:"FENG", type:"prog",   jupas:"JS3150", score:26.1, calc:"Best 5", name:"BSc (Hons) in Biomedical Engineering", tags:["A","I"] },
+  { num:23, fac:"FENG", type:"scheme", jupas:"JS3170", score:25.9, calc:"Best 5", name:"BEng (Hons) Scheme in Electrical Engineering", tags:["A"],
+            spec:["Electrical Engineering","Transportation Systems Engineering"] },
+  { num:24, fac:"FENG", type:"scheme", jupas:"JS3180", score:24.2, calc:"Best 5", name:"BEng/BSc (Hons) Scheme in Information and AI Engineering", tags:["A"],
+            spec:["Internet-of-Things","Artificial Intelligence","Information Security"] },
+  { num:25, fac:"FENG", type:"scheme", jupas:"JS3236", score:22.6, calc:"Best 5", name:"BEng (Hons) Scheme in Product Innovation and Smart Manufacturing",
+            spec:["Product Innovation with Marketing","Smart Manufacturing"] },
+  { num:26, fac:"FENG", type:"scheme", jupas:"JS3237", score:22.3, calc:"Best 5", name:"BSc (Hons) Scheme in Intelligent Supply Chain and Engineering Management", tags:["A"],
+            spec:["Intelligent Supply Chain","Engineering Management with Data Analytics","Aviation Operations and Systems"] },
+  { num:27, fac:"FENG", type:"scheme", jupas:"JS3741", score:24.2, calc:"Best 5", name:"BEng (Hons) Scheme in Mechanical Engineering", tags:["A"],
+            spec:["Intelligent Robotics Engineering","Mechanical Engineering"] },
+  { num:28, fac:"FENG", type:"prog",   jupas:"JS3160", score:23.5, calc:"Best 5", name:"BSc (Hons) in Sports Science and Technology", note:"subject to approval" },
+
+  { num:29, fac:"FHSS", type:"scheme", jupas:"JS3250", score:24.7, calc:"Best 5", name:"BA (Hons) Scheme in Applied Social Sciences", tags:["I"],
+            spec:["Social Work^","Social Policy and Social Entrepreneurship"] },
+  { num:30, fac:"FHSS", type:"prog",   jupas:"JS3478", score:31.9, calc:"Best 5 with Bonus", name:"BSc (Hons) in Medical Laboratory Science" },
+  { num:31, fac:"FHSS", type:"prog",   jupas:"JS3337", score:23.5, calc:"Best 5", name:"BSc (Hons) in Mental Health Nursing", note:"5-year programme" },
+  { num:32, fac:"FHSS", type:"prog",   jupas:"JS3648", score:24.1, calc:"Best 5", name:"BSc (Hons) in Nursing", note:"5-year programme" },
+  { num:33, fac:"FHSS", type:"scheme", jupas:"JS3290", score:28.3, calc:"Best 5 with Bonus", name:"BSc (Hons) in Optometry", tags:["A","I"],
+            spec:["Optometry","Vision Science"] },
+  { num:34, fac:"FHSS", type:"prog",   jupas:"JS3624", score:31.0, calc:"Best 5", name:"BSc (Hons) in Occupational Therapy" },
+  { num:35, fac:"FHSS", type:"prog",   jupas:"JS3636", score:30.9, calc:"Best 5", name:"BSc (Hons) in Physiotherapy" },
+  { num:36, fac:"FHSS", type:"prog",   jupas:"JS3612", score:34.6, calc:"Best 5 with Bonus", name:"BSc (Hons) in Radiography" },
+
+  { num:6,  fac:"FH",   type:"broad",  jupas:"JS3007", score:24.3, calc:"Best 5 with Bonus", name:"Bachelor's Degree Scheme in Humanities" },
+  { num:37, fac:"FH",   type:"prog",   jupas:"JS3320", score:26.1, calc:"Best 5 with Bonus", name:"BA (Hons) in Chinese History and Culture" },
+  { num:38, fac:"FH",   type:"prog",   jupas:"JS3240", score:22.8, calc:"Chin + Eng + Best 3 with Bonus", name:"BA (Hons) in English and Applied Linguistics", tags:["A"] },
+  { num:39, fac:"FH",   type:"prog",   jupas:"JS3243", score:23.5, calc:"Best 5 with Bonus", name:"BSc (Hons) in Language Science and Technology", tags:["A"], note:"subject to approval" },
+  { num:40, fac:"FH",   type:"prog",   jupas:"JS3242", score:28.7, calc:"Best 5 with Bonus", name:"BSc (Hons) in Speech Therapy" },
+
+  { num:7,  fac:"FS",   type:"broad",  jupas:"JS3008", score:24.3, calc:"Best 5", name:"Bachelor's Degree Scheme in Science" },
+  { num:41, fac:"FS",   type:"scheme", jupas:"JS3011", score:24.1, calc:"Best 5", name:"BSc (Hons) Scheme in Biotechnology and Chemical Technology",
+            spec:["Applied Biology with Biotechnology","Chemical Technology"] },
+  { num:42, fac:"FS",   type:"scheme", jupas:"JS3255", score:24.0, calc:"Best 5", name:"BSc (Hons) Scheme in Food Science and Nutrition",
+            spec:["Food Safety and Technology","Human Nutrition and Health"] },
+  { num:43, fac:"FS",   type:"prog",   jupas:"JS3030", score:24.5, calc:"Best 5", name:"BSc (Hons) in Physics + Secondary Major in AIDA / IE",
+            spec:["Secondary Major in AIDA","Secondary Major in IE"] },
+
+  { num:44, fac:"SD",   type:"scheme", jupas:"JS3569", score:23.5, calc:"Best 5", name:"BA (Hons) Scheme in Design", tags:["A","I"],
+            spec:["Advertising Design","Environmental Design","Information Design","Interaction Design","Interior Design","Immersive Media and Game Design","Product Design","Service Design","Social Design"] },
+
+  { num:45, fac:"SFT",  type:"scheme", jupas:"JS3050", score:21.7, calc:"Best 5 with Bonus", name:"BA (Hons) Scheme in Fashion", tags:["A","I"],
+            spec:["Fashion Design","Knitwear Design","Contour Fashion and Activewear","Fashion Business","Fashion Innovation and Technology"],
+            note:"BA (Hons) in Fashion if not streamed into a specialism" },
+
+  { num:46, fac:"SHTM", type:"scheme", jupas:"JS3310", score:23.4, calc:"Best 5", name:"BSc (Hons) Scheme in Hotel and Tourism Management", tags:["A","I"],
+            spec:["Hotel Management","Smart Tourism and Hospitality","Event and Experience Management"] }
+];
+
+// Pre-loaded fairs — the upcoming OCSC Expo 2026 (Bangkok) is listed first and set active by default
+const SEED_EVENTS = [
+  { id:"ocsc-thailand-d1",date:"2026-11-14", day:"Sat", time:"13:00–19:00", name:"OCSC International Education Expo 2026 (Day 1)", location:"Paragon Hall, 5/F, Siam Paragon, Bangkok", type:"Education Expo" },
+  { id:"ocsc-thailand-d2",date:"2026-11-15", day:"Sun", time:"13:00–19:00", name:"OCSC International Education Expo 2026 (Day 2)", location:"Paragon Hall, 5/F, Siam Paragon, Bangkok", type:"Education Expo" },
+  { id:"st-pauls-2026",   date:"2026-09-07", day:"Mon", name:"St Paul's College University Fair 2026", location:"Hong Kong", type:"School fair" },
+  { id:"hinhua-2026",     date:"2026-07-08", day:"Wed", name:"Hin Hua High School Education Fair 2026", location:"Selangor", type:"School fair"  },
+  { id:"mbsskl-2026",     date:"2026-07-09", day:"Thu", name:"Methodist Boys' Secondary School KL",      location:"KL",       type:"School visit" },
+  { id:"kuencheng-d1",    date:"2026-07-10", day:"Fri", name:"Kuen Cheng High School Fair 2026 (Day 1)", location:"KL",       type:"School fair"  },
+  { id:"kuencheng-d2",    date:"2026-07-11", day:"Sat", name:"Kuen Cheng High School Fair 2026 (Day 2)", location:"KL",       type:"School fair"  }
+];
+
+// University-wide talking points
+const UNI = {
+  rankings:[
+    "54th — QS World University Rankings 2026",
+    "3rd — THE World's Most International University 2025",
+    "350+ partner institutions across 40+ countries & regions",
+    "98.7% graduate employment rate"
+  ],
+  scholarship:"Academic + STARS talent scholarships up to HK$270,000/yr. Packages: 50% / 100% (full tuition) / Full (tuition + living allowance). Academic awardees also get a one-off HK$30,000 for overseas exchange. Cultural Ambassador Scholarship up to HK$50,000/yr.",
+  exchange:"350+ partner institutions in 40+ countries/regions; one-off HK$30,000 exchange grant for academic-scholarship awardees; post-entry funding for overseas learning.",
+  internship:"Guaranteed internship and a 98.7% graduate employment rate.",
+  hall:"University-managed accommodation guaranteed in Year 1 (~HK$17,306/yr). Plan ahead from Year 2 (budget ~HK$50,000/yr).",
+  hklife:"Centrally located in Hong Kong — a bilingual, English-medium city. 4 hours' flight to Asia's key cities; 5 hours from half the world's population.",
+  culture:"Diverse international student body, English-medium education, Common Year One for broad schemes, plus AIDA / IE secondary majors.",
+  fees:"Tuition HK$200,000/yr; estimated total ~HK$287,656/yr incl. accommodation, meals & personal expenses. Application fee HK$500.",
+  admission:"IB 32+ · A-Level 3×B · STPM B− avg (3 subjects) · Senior UEC B4 avg (6 subjects). English: IELTS 6.0 / TOEFL iBT 80 / O-Level C, etc.",
+  timeline:"Apply 16 Sep 2025 → Early 19 Nov 2025 → Main & STARS 5 Feb 2026 (open until 15 May 2026, subject to places)."
+};
+
+// Per-programme deep info. AMA (#11) fully populated as the primary departmental example.
+const PROG_INFO = {
+  11: {
+    study:"Common Year One in Computer & Mathematical Sciences, then specialise in Applied Mathematics, Investment Science & Finance Analytics (ISFA), or Quantitative Finance & FinTech (QF&FinTech). Cores: calculus, linear algebra, statistics & inference, operations research, computational methods, data science; finance cores (economics, accounting, business finance, investments, derivative pricing) or maths cores (PDEs, real analysis, modelling); programming tools (R / MATLAB / Bloomberg); a year-long Capstone Project. Optional Secondary Major in AIDA (132 credits).",
+    careers:"Quantitative analyst, data scientist, actuary, risk / investment analyst, FinTech developer, mathematics professional, or postgraduate research. Fast-Track integrated Bachelor's + Master's options available.",
+    plannerUrl:"https://leekeifung.github.io/AMA-JS3220X/",
+    subjectRanking:"Top Ranked Mathematics & Statistics department in HK.",
+    note:"Programme JUPAS Code JS3220 (PolyU Code 63430) · 3 specialisms · AIDA secondary major."
+  }
+};
+
+/* ===========================================================
+   2) STATE & UTILITIES
+   =========================================================== */
+const KEY = 'polyu-fair-counter-v1';
+const state = {
+  view:'counter', eventId:"ocsc-thailand-d1", client:'student',
+  operator:'', facFilter:'all', search:'',
+  events:[...SEED_EVENTS], log:[]
+};
+let charts = {};
+
+const progMap = Object.fromEntries(PROGRAMMES.map(p=>[p.num,p]));
+const progByNum = n => progMap[n];
+const clientById = id => CLIENTS.find(c=>c.id===id) || CLIENTS[3];
+const eventById  = id => state.events.find(e=>e.id===id);
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({
+  events:state.events, log:state.log, operator:state.operator,
+  eventId:state.eventId, client:state.client })); }catch(e){} }
+function load(){ try{
+  const r = localStorage.getItem(KEY); if(!r) return;
+  const d = JSON.parse(r);
+  if(d.events?.length) state.events = d.events;
+  state.log = d.log || []; state.operator = d.operator || '';
+  state.eventId = d.eventId || state.eventId; state.client = d.client || 'student';
+  // Non-destructive merge: add any newly-seeded fairs (e.g. OCSC Bangkok) that
+  // a returning user's saved data doesn't have yet, without touching their counts.
+  SEED_EVENTS.forEach(se=>{ if(!state.events.some(e=>e.id===se.id)) state.events.push(se); });
+}catch(e){} }
+
+function toast(msg,type='info'){
+  const c={info:'bg-slate-800 text-white',success:'bg-emerald-600 text-white',warn:'bg-amber-500 text-white',error:'bg-red-600 text-white'};
+  const el=document.createElement('div'); el.className=`toast ${c[type]}`; el.textContent=msg;
+  document.getElementById('toast').appendChild(el); setTimeout(()=>el.remove(),2200);
+}
+
+function eventCounts(evId){
+  const m={};
+  for(const r of state.log){ if(r.ev!==evId) continue;
+    (m[r.prog] ||= {student:0,parent:0,teacher:0,other:0,total:0});
+    m[r.prog][r.cl]++; m[r.prog].total++; }
+  return m;
+}
+function eventTotal(evId){ return state.log.reduce((s,r)=>s+(r.ev===evId?1:0),0); }
+
+/* ===========================================================
+   3) COUNT ACTIONS
+   =========================================================== */
+function addCount(num){
+  state.log.push({id:uid(), ev:state.eventId, cl:state.client, prog:num, op:state.operator||'—', ts:Date.now()});
+  save(); refreshCounts(num,true);
+}
+function decCount(num){
+  for(let i=state.log.length-1;i>=0;i--){ const r=state.log[i];
+    if(r.ev===state.eventId && r.cl===state.client && r.prog===num){ state.log.splice(i,1); break; } }
+  save(); refreshCounts(num,false);
+}
+function undoLast(){
+  for(let i=state.log.length-1;i>=0;i--){ if(state.log[i].ev===state.eventId){ const r=state.log.splice(i,1)[0];
+    save(); refreshCounts(r.prog,false); toast('↩️ Undid last count','warn'); return; } }
+  toast('Nothing to undo','warn');
+}
+function refreshCounts(num,bump){
+  const counts=eventCounts(state.eventId);
+  const c=counts[num]||{student:0,parent:0,teacher:0,other:0,total:0};
+  const tot=document.getElementById('cnt-'+num);
+  if(tot){ tot.textContent=c.total; if(bump){tot.classList.remove('bump');void tot.offsetWidth;tot.classList.add('bump');} }
+  const mini=document.getElementById('mini-'+num);
+  if(mini) mini.innerHTML=CLIENTS.map(cl=>`<span class="px-1">${cl.icon}${c[cl.id]}</span>`).join('');
+  const lb=document.getElementById('liveBadge'); if(lb) lb.textContent='● '+eventTotal(state.eventId);
+  const sb=document.getElementById('sumBar'); if(sb) sb.innerHTML=summaryChips();
+  const mc=document.getElementById('modal-cnt'); if(mc) mc.textContent=c.total;
+}
+
+/* ===========================================================
+   4) VIEW SWITCH + RENDER
+   =========================================================== */
+function switchView(v){
+  state.view=v;
+  document.querySelectorAll('[id^="tab-"]').forEach(t=>{t.classList.remove('tab-active');t.classList.add('text-red-50');});
+  const t=document.getElementById('tab-'+v); t.classList.add('tab-active'); t.classList.remove('text-red-50');
+  render();
+}
+function render(){
+  const sel=document.getElementById('eventSel');
+  sel.innerHTML=state.events.map(e=>`<option value="${e.id}" ${e.id===state.eventId?'selected':''}>${e.day} ${fmtD(e.date)} · ${e.name} (${e.location})</option>`).join('');
+  document.getElementById('liveBadge').textContent='● '+eventTotal(state.eventId);
+  document.getElementById('operator').value=state.operator;
+
+  const el=document.getElementById('content');
+  if(state.view==='counter')        el.innerHTML=renderCounter();
+  else if(state.view==='dashboard'){ el.innerHTML=renderDashboard(); setTimeout(buildCharts,30); }
+  else if(state.view==='programmes')el.innerHTML=renderProgrammes();
+  else if(state.view==='events')    el.innerHTML=renderEvents();
+  else if(state.view==='data')      el.innerHTML=renderData();
+}
+function fmtD(d){ const x=new Date(d); return x.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
+
+/* ===========================================================
+   5) COUNTER VIEW
+   =========================================================== */
+function clientControl(){
+  return CLIENTS.map(c=>`
+    <button onclick="state.client='${c.id}';save();render()"
+      class="tap flex-1 px-2 py-2 rounded-lg text-sm font-bold border-2 ${state.client===c.id?'bg-red-700 text-white border-red-700 shadow':'bg-white text-slate-700 border-slate-200 hover:border-red-300'}">
+      <span class="text-lg">${c.icon}</span><span class="ml-1 hidden sm:inline">${c.label}</span>
+    </button>`).join('');
+}
+function summaryChips(){
+  const counts=eventCounts(state.eventId); const t={student:0,parent:0,teacher:0,other:0,total:0};
+  Object.values(counts).forEach(c=>CLIENTS.forEach(cl=>{t[cl.id]+=c[cl.id];t.total+=c[cl.id]/1;}));
+  let tot=0; Object.values(counts).forEach(c=>tot+=c.total);
+  return `<span class="font-bold text-red-700 text-base">${tot}</span><span class="text-slate-500"> total</span>`+
+    CLIENTS.map(cl=>`<span class="ml-2">${cl.icon}<b>${t[cl.id]}</b></span>`).join('');
+}
+function renderCounter(){
+  return `
+  <div class="bg-white rounded-xl shadow-sm p-3 mb-3 sticky top-32 z-20">
+    <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
+      <div class="text-sm"><b>Step 1 · Who is asking?</b> <span class="text-slate-500">→ then tap the programme card</span></div>
+      <button onclick="undoLast()" class="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded">↩️ Undo</button>
+    </div>
+    <div class="flex gap-2 mb-2">${clientControl()}</div>
+    <div id="sumBar" class="text-sm text-slate-600 border-t pt-2">${summaryChips()}</div>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm p-3 mb-3 flex gap-2 flex-wrap items-center">
+    <input value="${state.search}" oninput="state.search=this.value;document.getElementById('grid').innerHTML=renderGrid()"
+      placeholder="🔍 Search JUPAS (JS3220) / programme / faculty / #" class="flex-1 min-w-0 border rounded px-3 py-2 text-sm">
+    <select onchange="state.facFilter=this.value;document.getElementById('grid').innerHTML=renderGrid()" class="border rounded px-2 py-2 text-sm">
+      <option value="all">All faculties</option>
+      ${FAC_ORDER.map(f=>`<option value="${f}" ${state.facFilter===f?'selected':''}>${FAC[f].icon} ${FAC[f].short}</option>`).join('')}
+    </select>
+  </div>
+
+  <p class="text-xs text-slate-500 mb-2 px-1">💡 <b>Tap a card = +1</b> for the visitor type · tap <b>–</b> to correct · tap <b>ℹ️</b> for admissions details &amp; scores.</p>
+  <div id="grid">${renderGrid()}</div>`;
+}
+function renderGrid(){
+  const counts=eventCounts(state.eventId);
+  const q=state.search.toLowerCase().trim();
+  let html='';
+  for(const f of FAC_ORDER){
+    if(state.facFilter!=='all' && state.facFilter!==f) continue;
+    let list=PROGRAMMES.filter(p=>p.fac===f);
+    if(q) list=list.filter(p=>(''+p.num).includes(q)||(p.jupas&&p.jupas.toLowerCase().includes(q))||p.name.toLowerCase().includes(q)||FAC[f].name.toLowerCase().includes(q)||FAC[f].short.toLowerCase().includes(q));
+    if(!list.length) continue;
+    html+=`<div class="mb-4">
+      <div class="flex items-center gap-2 mb-2"><span class="text-lg">${FAC[f].icon}</span>
+        <h3 class="font-bold text-slate-700 text-sm">${FAC[f].name}</h3>
+        <span class="text-xs ${FAC[f].chip} border px-2 rounded-full">${list.length}</span></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${list.map(p=>cardHTML(p,counts[p.num])).join('')}</div></div>`;
+  }
+  return html || '<p class="text-center text-slate-400 py-8">No programmes match.</p>';
+}
+function cardHTML(p,c){
+  c=c||{student:0,parent:0,teacher:0,other:0,total:0};
+  return `
+  <div class="bg-white rounded-lg shadow-sm border-l-4 tap select-none hover:shadow-md transition-shadow" style="border-left-color:${FAC[p.fac].hex}">
+    <div class="flex items-stretch">
+      <button onclick="addCount(${p.num})" class="flex-1 text-left p-2.5 min-w-0">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="font-mono text-[11px] font-bold bg-slate-100 px-1.5 rounded">#${p.num}</span>
+          ${p.jupas ? `<span class="font-mono text-[11px] font-bold text-red-800 bg-red-50 border border-red-200 px-1.5 rounded">(${p.jupas})</span>` : ''}
+          ${p.code?`<span class="text-[10px] text-slate-400 font-mono">${p.code}</span>`:''}
+          ${p.type==='broad'?'<span class="text-[10px] bg-slate-200 text-slate-600 px-1 rounded">Broad scheme</span>':''}
+          ${(p.tags||[]).map(t=>`<span class="text-[10px] font-bold ${t==='A'?'text-green-600':'text-orange-600'}">${t==='A'?'Ⓐ':'Ⓘ'}</span>`).join('')}
+        </div>
+        <p class="text-xs leading-tight mt-1 font-semibold text-slate-800">${p.name}</p>
+        <div class="text-[10px] text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+          ${p.score !== undefined ? `<span>2026 Score: <b class="text-red-700">${p.score > 0 ? p.score : 'N/A'}</b> <span class="text-slate-400 text-[9px]">(${p.calc || 'Best 5'})</span></span>` : ''}
+        </div>
+        <div id="mini-${p.num}" class="text-[10px] text-slate-500 mt-1">${CLIENTS.map(cl=>`<span class="px-1">${cl.icon}${c[cl.id]}</span>`).join('')}</div>
+      </button>
+      <div class="flex flex-col items-center justify-center px-2 border-l border-slate-100">
+        <span id="cnt-${p.num}" class="text-xl font-extrabold text-red-700">${c.total}</span>
+        <div class="flex gap-1 mt-0.5">
+          <button onclick="decCount(${p.num})" class="text-xs w-6 h-6 rounded bg-slate-100 hover:bg-red-100 text-slate-600">–</button>
+          <button onclick="openProg(${p.num})" class="text-xs w-6 h-6 rounded bg-slate-100 hover:bg-blue-100" title="Talking points">ℹ️</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ===========================================================
+   6) DASHBOARD VIEW
+   =========================================================== */
+function renderDashboard(){
+  const ev=eventById(state.eventId); const counts=eventCounts(state.eventId);
+  const tot=eventTotal(state.eventId);
+  const byClient={student:0,parent:0,teacher:0,other:0};
+  const byFac={}; FAC_ORDER.forEach(f=>byFac[f]=0);
+  Object.entries(counts).forEach(([num,c])=>{ CLIENTS.forEach(cl=>byClient[cl.id]+=c[cl.id]);
+    const p=progByNum(+num); if(p) byFac[p.fac]+=c.total; });
+  let topFac='—',topN=-1; Object.entries(byFac).forEach(([f,n])=>{if(n>topN){topN=n;topFac=f;}});
+  const uniqueProg=Object.keys(counts).length;
+
+  const card=(v,l,cls)=>`<div class="bg-white rounded-xl shadow-sm p-3 text-center"><div class="text-2xl font-extrabold ${cls}">${v}</div><div class="text-xs text-slate-500">${l}</div></div>`;
+  if(tot===0) return `<div class="bg-white rounded-xl shadow-sm p-8 text-center"><div class="text-5xl mb-2">📊</div>
+    <p class="text-slate-600 mb-1">No counts yet for <b>${ev.name}</b>.</p>
+    <p class="text-slate-400 text-sm mb-3">Go to the Counter tab and start tapping — or load demo data to preview the graphs.</p>
+    <button onclick="loadDemo()" class="bg-red-700 text-white px-4 py-2 rounded text-sm">🎲 Load demo data</button></div>`;
+
+  return `
+  <div class="bg-white rounded-xl shadow-sm p-3 mb-3 flex items-center justify-between flex-wrap gap-2">
+    <div><h2 class="font-bold text-slate-800">📊 ${ev.name}</h2>
+      <p class="text-xs text-slate-500">${ev.day} ${fmtD(ev.date)}${ev.time?' · '+ev.time:''} · ${ev.location} · ${ev.type}</p></div>
+    <button onclick="switchView('data')" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded">📥 Export this data</button>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+    ${card(tot,'Total enquiries','text-red-700')}
+    ${card(uniqueProg,'Programmes asked','text-blue-700')}
+    ${card(FAC[topFac].icon+' '+FAC[topFac].short,'Busiest faculty','text-emerald-700 text-base')}
+    ${card(byClient.student,'Students','text-purple-700')}
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div class="bg-white rounded-xl shadow-sm p-3"><h3 class="font-bold text-sm mb-2">👥 By visitor type</h3><canvas id="c-client" height="180"></canvas></div>
+    <div class="bg-white rounded-xl shadow-sm p-3"><h3 class="font-bold text-sm mb-2">🏛️ By faculty / school</h3><canvas id="c-fac" height="180"></canvas></div>
+    <div class="bg-white rounded-xl shadow-sm p-3 md:col-span-2"><h3 class="font-bold text-sm mb-2">🏆 Top 10 programmes</h3><canvas id="c-top" height="170"></canvas></div>
+    <div class="bg-white rounded-xl shadow-sm p-3"><h3 class="font-bold text-sm mb-2">⏱️ Enquiries by hour</h3><canvas id="c-hour" height="190"></canvas></div>
+    <div class="bg-white rounded-xl shadow-sm p-3"><h3 class="font-bold text-sm mb-2">📅 All fairs compared</h3><canvas id="c-evt" height="190"></canvas></div>
+  </div>`;
+}
+function buildCharts(){
+  Object.values(charts).forEach(c=>{try{c.destroy()}catch(e){}}); charts={};
+  if(typeof Chart==='undefined') return;
+  Chart.defaults.font.size=11;
+  const counts=eventCounts(state.eventId);
+  const byClient=CLIENTS.map(cl=>Object.values(counts).reduce((s,c)=>s+c[cl.id],0));
+  const facLabels=[],facData=[],facCol=[];
+  FAC_ORDER.forEach(f=>{ const n=Object.entries(counts).reduce((s,[num,c])=>s+(progByNum(+num)?.fac===f?c.total:0),0);
+    if(n>0){facLabels.push(FAC[f].short);facData.push(n);facCol.push(FAC[f].hex);} });
+  const top=Object.entries(counts).map(([num,c])=>({num:+num,t:c.total})).sort((a,b)=>b.t-a.t).slice(0,10);
+
+  const C=(id,cfg)=>{const el=document.getElementById(id);if(el)charts[id]=new Chart(el,cfg);};
+  C('c-client',{type:'doughnut',data:{labels:CLIENTS.map(c=>c.icon+' '+c.label),datasets:[{data:byClient,backgroundColor:CLIENTS.map(c=>c.hex)}]},options:{plugins:{legend:{position:'bottom'}}}});
+  C('c-fac',{type:'bar',data:{labels:facLabels,datasets:[{data:facData,backgroundColor:facCol}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  C('c-top',{type:'bar',data:{labels:top.map(t=>'#'+t.num+' '+(progByNum(t.num).jupas?`(${progByNum(t.num).jupas}) `:` `)+progByNum(t.num).name.slice(0,28)),datasets:[{data:top.map(t=>t.t),backgroundColor:top.map(t=>FAC[progByNum(t.num).fac].hex)}]},options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{precision:0}}}}});
+  
+  const hours={}; state.log.filter(r=>r.ev===state.eventId).forEach(r=>{const h=new Date(r.ts).getHours();hours[h]=(hours[h]||0)+1;});
+  const hk=Object.keys(hours).map(Number).sort((a,b)=>a-b);
+  C('c-hour',{type:'line',data:{labels:hk.map(h=>h+':00'),datasets:[{data:hk.map(h=>hours[h]),fill:true,borderColor:'#dc2626',backgroundColor:'rgba(220,38,38,.12)',tension:.3}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+  C('c-evt',{type:'bar',data:{labels:state.events.map(e=>e.name.slice(0,16)),datasets:[{data:state.events.map(e=>eventTotal(e.id)),backgroundColor:state.events.map(e=>e.id===state.eventId?'#dc2626':'#cbd5e1')}]},options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});
+}
+
+/* ===========================================================
+   7) PROGRAMMES VIEW + TALKING-POINTS MODAL
+   =========================================================== */
+function renderProgrammes(){
+  return `
+  <div class="bg-white rounded-xl shadow-sm p-3 mb-3">
+    <h2 class="font-bold text-slate-800">🎓 Programme directory &amp; talking points</h2>
+    <p class="text-xs text-slate-500">All application choices from the 2026/27 list. Click any card for the introduction script &amp; 2026 admissions score. Ⓐ = AIDA secondary major · Ⓘ = Innovation &amp; Entrepreneurship.</p>
+    <input value="${state.search}" oninput="state.search=this.value;document.getElementById('plist').innerHTML=progList()" placeholder="🔍 Search JUPAS code (e.g. JS3220) or programme title…" class="w-full border rounded px-3 py-2 text-sm mt-2">
+  </div>
+  <div id="plist">${progList()}</div>`;
+}
+function progList(){
+  const q=state.search.toLowerCase().trim(); let html='';
+  for(const f of FAC_ORDER){
+    let list=PROGRAMMES.filter(p=>p.fac===f);
+    if(q) list=list.filter(p=>p.name.toLowerCase().includes(q)||(p.jupas&&p.jupas.toLowerCase().includes(q))||(''+p.num).includes(q)||FAC[f].name.toLowerCase().includes(q));
+    if(!list.length) continue;
+    html+=`<div class="mb-3"><div class="flex items-center gap-2 mb-1.5"><span>${FAC[f].icon}</span><h3 class="font-bold text-sm text-slate-700">${FAC[f].name}</h3></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">${list.map(p=>`
+        <button onclick="openProg(${p.num})" class="text-left bg-white rounded-lg shadow-sm p-2.5 border-l-4 tap hover:shadow-md" style="border-left-color:${FAC[p.fac].hex}">
+          <div class="flex items-center gap-1 flex-wrap"><span class="font-mono text-[11px] font-bold bg-slate-100 px-1 rounded">#${p.num}</span>
+          ${p.jupas ? `<span class="font-mono text-[11px] font-bold text-red-800 bg-red-50 border border-red-200 px-1 rounded">(${p.jupas})</span>` : ''}
+          ${p.featured?'<span class="text-[10px]">⭐</span>':''}${(p.tags||[]).map(t=>`<span class="text-[10px] font-bold ${t==='A'?'text-green-600':'text-orange-600'}">${t==='A'?'Ⓐ':'Ⓘ'}</span>`).join('')}</div>
+          <p class="text-xs text-slate-700 mt-0.5 leading-tight font-medium">${p.name}</p>
+          ${p.score !== undefined ? `<div class="text-[10px] text-slate-500 mt-1">2026 Score: <b class="text-slate-700">${p.score > 0 ? p.score : 'N/A'}</b> (${p.calc || 'Best 5'})</div>` : ''}
+        </button>`).join('')}</div></div>`;
+  }
+  return html;
+}
+function openProg(num){
+  const p=progByNum(num); const info=PROG_INFO[num]||{};
+  const c=(eventCounts(state.eventId)[num])||{total:0};
+  const sec=(icon,title,body)=>`<div class="border rounded-lg p-2.5"><div class="font-bold text-xs text-slate-700 mb-0.5">${icon} ${title}</div><div class="text-xs text-slate-600 leading-relaxed">${body}</div></div>`;
+  const ph=t=>`<span class="text-slate-400 italic">➕ ${t} — add in <code>PROG_INFO[${num}]</code></span>`;
+
+  const scoreInfo = p.score !== undefined 
+    ? `• <b>2026 JUPAS Average HKDSE Score (Exclude NAS offers):</b> <span class="text-red-700 font-bold">${p.score > 0 ? p.score : 'N/A'}</span><br>• <b>Score Calculation Mechanism:</b> ${p.calc || 'Best 5'}`
+    : '';
+
+  document.getElementById('modalBody').innerHTML=`
+    <div class="p-4 rounded-t-xl text-white" style="background:${FAC[p.fac].hex}">
+      <div class="flex justify-between items-start">
+        <div><div class="text-xs opacity-90">${FAC[p.fac].icon} ${FAC[p.fac].name}</div>
+          <h2 class="font-extrabold leading-tight mt-0.5">#${p.num} ${p.jupas ? `(${p.jupas})` : ''} · ${p.name}</h2>
+          <div class="text-xs opacity-90 mt-1">${p.jupas ? 'JUPAS Code: '+p.jupas+' · ' : ''}${p.code?'PolyU Code '+p.code+' · ':''}${(p.tags||[]).map(t=>t==='A'?'Ⓐ AIDA':'Ⓘ IE').join(' · ')||''} ${p.note?'· '+p.note:''}</div></div>
+        <button onclick="closeModal()" class="text-white/90 text-2xl leading-none">×</button>
+      </div>
+      ${p.spec?`<div class="mt-2 flex flex-wrap gap-1">${p.spec.map(s=>`<span class="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">${s}</span>`).join('')}</div>`:''}
+    </div>
+    <div class="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+      <div class="flex items-center justify-between bg-slate-50 rounded-lg p-2">
+        <span class="text-xs text-slate-500">Counted at <b>${eventById(state.eventId).name}</b>: <b id="modal-cnt" class="text-red-700">${c.total}</b></span>
+        <div class="flex gap-1">${CLIENTS.map(cl=>`<button onclick="state.client='${cl.id}';addCount(${num})" class="text-xs ${state.client===cl.id?'bg-red-700 text-white':'bg-white border'} px-2 py-1 rounded">+1 ${cl.icon}</button>`).join('')}</div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        ${sec('📚','What you study (4 yrs)', info.study || ph('study outline'))}
+        ${sec('💼','Careers / what you can do', info.careers || ph('career outcomes'))}
+        ${sec('🏅','Rankings', UNI.rankings.map(r=>'• '+r).join('<br>')+'<br>'+(info.subjectRanking?'• '+info.subjectRanking:ph('subject ranking')))}
+        ${sec('🎓','Scholarships', UNI.scholarship)}
+        ${sec('✈️','Exchange', UNI.exchange)}
+        ${sec('🛠️','Internship & jobs', UNI.internship)}
+        ${sec('🏠','Hall life', UNI.hall)}
+        ${sec('🌏','Hong Kong life', UNI.hklife)}
+        ${sec('🌐','Culture & diversity', UNI.culture)}
+        ${sec('💰','Fees', UNI.fees)}
+        ${sec('📝','2026 Admissions & Score Remarks', (scoreInfo ? scoreInfo + '<br><br>' : '') + UNI.admission)}
+        ${sec('🗓️','Apply', UNI.timeline)}
+      </div>
+      ${info.plannerUrl?`<a href="${info.plannerUrl}" target="_blank" class="block text-center bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2 text-sm font-semibold">🔗 Open programme structure / planner</a>`
+        :`<div class="text-center text-xs text-slate-400 italic border border-dashed rounded-lg py-2">🔗 Add a planner link in <code>PROG_INFO[${num}].plannerUrl</code> (e.g. your AMA-JS3220X planner)</div>`}
+    </div>`;
+  const m=document.getElementById('modal'); m.classList.remove('hidden'); m.classList.add('flex');
+}
+function closeModal(){ const m=document.getElementById('modal'); m.classList.add('hidden'); m.classList.remove('flex'); if(state.view==='counter')render(); }
+
+/* ===========================================================
+   8) FAIRS (events) VIEW
+   =========================================================== */
+function renderEvents(){
+  return `
+  <div class="bg-white rounded-xl shadow-sm p-3 mb-3">
+    <h2 class="font-bold text-slate-800 mb-2">📅 Manage fairs</h2>
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
+      <input id="ev-name" placeholder="Event name" class="border rounded px-2 py-1.5 text-sm col-span-2">
+      <input id="ev-date" type="date" value="2026-11-14" class="border rounded px-2 py-1.5 text-sm">
+      <input id="ev-time" placeholder="Time e.g. 13:00–19:00" class="border rounded px-2 py-1.5 text-sm">
+      <input id="ev-loc" placeholder="Location" class="border rounded px-2 py-1.5 text-sm">
+      <select id="ev-type" class="border rounded px-2 py-1.5 text-sm"><option>School fair</option><option>School visit</option><option>University fair</option><option>Education Expo</option><option>Agent event</option><option>Online</option></select>
+    </div>
+    <button onclick="addEvent()" class="mt-2 bg-red-700 text-white px-3 py-1.5 rounded text-sm">➕ Add fair</button>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+    ${state.events.map(e=>`
+      <div class="bg-white rounded-xl shadow-sm p-3 border-l-4 ${e.id===state.eventId?'border-red-600':'border-slate-200'}">
+        <div class="flex justify-between items-start">
+          <div><h3 class="font-bold text-sm text-slate-800">${e.name}</h3>
+            <p class="text-xs text-slate-500">${e.day||''} ${fmtD(e.date)}${e.time?' · '+e.time:''} · ${e.location} · ${e.type}</p>
+            <p class="text-xs text-red-700 font-semibold mt-1">${eventTotal(e.id)} enquiries counted</p></div>
+          <span class="text-xs bg-slate-100 px-2 py-0.5 rounded">${e.id}</span>
+        </div>
+        <div class="flex gap-2 mt-2">
+          <button onclick="state.eventId='${e.id}';save();switchView('counter')" class="text-xs flex-1 ${e.id===state.eventId?'bg-emerald-600':'bg-blue-600'} text-white px-2 py-1.5 rounded">${e.id===state.eventId?'✓ Active — count now':'Set active'}</button>
+          <button onclick="delEvent('${e.id}')" class="text-xs bg-slate-100 hover:bg-red-100 px-2 py-1.5 rounded">🗑️</button>
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+function addEvent(){
+  const name=val('ev-name'),date=val('ev-date'),loc=val('ev-loc'),type=val('ev-type'),time=val('ev-time');
+  if(!name||!date){toast('Need a name and date','warn');return;}
+  const day=new Date(date).toLocaleDateString('en-GB',{weekday:'short'});
+  state.events.push({id:'ev-'+uid(),name,date,location:loc||'—',type,day,time});
+  save();render();toast('✅ Fair added','success');
+}
+function delEvent(id){
+  if(eventTotal(id)>0 && !confirm('This fair has counts. Delete the fair AND its counts?'))return;
+  state.events=state.events.filter(e=>e.id!==id);
+  state.log=state.log.filter(r=>r.ev!==id);
+  if(state.eventId===id && state.events[0]) state.eventId=state.events[0].id;
+  save();render();toast('🗑️ Deleted','info');
+}
+const val=id=>document.getElementById(id).value.trim();
+
+/* ===========================================================
+   9) DATA / GUIDE VIEW
+   =========================================================== */
+function renderData(){
+  return `
+  <div class="bg-white rounded-xl shadow-sm p-4 mb-3">
+    <h2 class="font-bold text-slate-800 mb-2">💾 Export / Import</h2>
+    <p class="text-xs text-slate-500 mb-3">Data auto-saves in your browser. <b>Always export a CSV/JSON backup after each fair</b>.</p>
+    <div class="flex flex-wrap gap-2">
+      <button onclick="exportCSV()" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-sm">📥 Export CSV (raw log)</button>
+      <button onclick="exportJSON()" class="bg-slate-700 text-white px-3 py-1.5 rounded text-sm">📦 Export JSON (full backup)</button>
+      <button onclick="importJSON()" class="bg-slate-600 text-white px-3 py-1.5 rounded text-sm">📤 Import JSON</button>
+      <button onclick="loadDemo()" class="bg-amber-500 text-white px-3 py-1.5 rounded text-sm">🎲 Load demo data</button>
+      <button onclick="if(confirm('Erase ALL counts (keeps fairs)?')){state.log=[];save();render();}" class="bg-red-600 text-white px-3 py-1.5 rounded text-sm">🗑️ Clear all counts</button>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm p-4 mb-3">
+    <h2 class="font-bold text-slate-800 mb-1">🔐 Cloudflare Authentication integration</h2>
+    <p class="text-xs text-slate-500 mb-2">Reuse your <code>CloudFireLogin.html</code> pattern for authenticated multi-rep tracking.</p>
+    <ol class="text-xs text-slate-600 list-decimal ml-4 space-y-1">
+      <li>Host on <b>Cloudflare Pages</b> behind <b>Cloudflare Access</b> (Zero-Trust).</li>
+      <li>Use <b>Cloudflare Turnstile</b> for verification and read authenticated headers via Pages Functions.</li>
+      <li>Store shared logs with <b>Cloudflare D1</b> (SQLite) or <b>KV</b>.</li>
+    </ol>
+  </div>`;
+}
+function csv(v){ v=(''+v).replace(/"/g,'""'); return /[",\n]/.test(v)?`"${v}"`:v; }
+function download(text,name,mime){ const b=new Blob([text],{type:mime}); const a=document.createElement('a');
+  a.href=URL.createObjectURL(b); a.download=name; a.click(); }
+function exportCSV(){
+  const rows=[["record_id","event_id","event_name","date","time","location","event_type","client","prog_no","jupas_code","programme","faculty","operator","timestamp"]];
+  state.log.forEach(r=>{ const e=eventById(r.ev)||{},p=progByNum(r.prog)||{};
+    rows.push([r.id,r.ev,e.name||'',e.date||'',e.time||'',e.location||'',e.type||'',r.cl,r.prog,p.jupas||'',p.name||'',(FAC[p.fac]||{}).name||'',r.op||'',new Date(r.ts).toISOString()]); });
+  download(rows.map(x=>x.map(csv).join(',')).join('\n'),`polyu-fair-${Date.now()}.csv`,'text/csv');
+  toast('📥 CSV exported','success');
+}
+function exportJSON(){ download(JSON.stringify({events:state.events,log:state.log,operator:state.operator,exportedAt:new Date().toISOString()},null,2),`polyu-fair-backup-${Date.now()}.json`,'application/json'); toast('📦 JSON exported','success'); }
+function importJSON(){ const i=document.createElement('input'); i.type='file'; i.accept='application/json';
+  i.onchange=e=>{const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
+    rd.onload=ev=>{try{const d=JSON.parse(ev.target.result);
+      if(d.events) state.events=d.events; if(d.log) state.log=d.log; if(d.operator) state.operator=d.operator;
+      if(!eventById(state.eventId)&&state.events[0]) state.eventId=state.events[0].id;
+      save();render();toast('📤 Imported','success');}catch(err){toast('Invalid JSON','error');}};
+    rd.readAsText(f);}; i.click(); }
+function loadDemo(){
+  if(state.log.length && !confirm('Add demo data on top of existing counts?'))return;
+  const pop=[11,11,12,13,8,9,46,44,24,32,22,30,33,2,3];
+  state.events.forEach(e=>{ const base=new Date(e.date+'T10:00:00').getTime();
+    const n=70+Math.floor(Math.random()*90);
+    for(let i=0;i<n;i++){ const prog=Math.random()<.45?pop[Math.floor(Math.random()*pop.length)]:PROGRAMMES[Math.floor(Math.random()*PROGRAMMES.length)].num;
+      const cl=['student','student','student','parent','parent','teacher','other'][Math.floor(Math.random()*7)];
+      state.log.push({id:uid(),ev:e.id,cl,prog,op:state.operator||'Demo',ts:base+Math.floor(Math.random()*6*3600*1000)}); } });
+  save();toast('🎲 Demo data loaded','success');render();
+}
+
+/* ===========================================================
+   10) LOGIN STUB
+   =========================================================== */
+function openLogin(){
+  document.getElementById('modalBody').innerHTML=`
+    <div class="p-5">
+      <div class="text-center mb-3"><div class="text-3xl">🔐</div><h2 class="font-bold text-slate-800">Operator Sign-In</h2>
+      <p class="text-xs text-slate-500">Local session identification tag.</p></div>
+      <input id="login-name" value="${state.operator||''}" placeholder="Name / Staff ID" class="w-full border rounded px-3 py-2 text-sm mb-2">
+      <button onclick="state.operator=document.getElementById('login-name').value.trim();save();closeModal();render();toast('👋 Signed in as '+(state.operator||'—'),'success')" class="w-full bg-red-700 text-white rounded py-2 text-sm font-semibold">Sign in</button>
+    </div>`;
+  const m=document.getElementById('modal'); m.classList.remove('hidden'); m.classList.add('flex');
+}
+
+/* ===========================================================
+   11) INIT
+   =========================================================== */
+(function init(){ load(); if(!eventById(state.eventId)&&state.events[0]) state.eventId=state.events[0].id; render(); })();
+</script>
+</body>
+</html>
